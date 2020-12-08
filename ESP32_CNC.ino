@@ -1,6 +1,5 @@
 #include <WiFi.h>
 #include "FirebaseESP32.h"
-#include <time.h>
 
 #define LED_ROJO 4
 #define LED_VERDE 5
@@ -13,9 +12,6 @@ FirebaseData firebaseData;
 const char *ssid =  "Departamento4B";     // change according to your Network - cannot be longer than 32 characters!
 const char *pass =  "MTPS7899A"; // change according to your Network
 
-int timezone = -4 * 3600;
-int dst = 0;
-
 String id = "1";
 String nameDevice = "CNC-1155848";
 String cnc_id = "1";
@@ -23,13 +19,14 @@ String dateTime="";
 String uid= "";
 
 String comando = "";
+String tiempo ="";
 String res = "";
 int i=0;
 
 void printResult(FirebaseData &data);
 
 void setup() {
-  
+
   pinMode(LED_ROJO, OUTPUT);
   pinMode(LED_VERDE, OUTPUT);
   
@@ -46,37 +43,46 @@ void setup() {
     digitalWrite(LED_ROJO, HIGH);
     digitalWrite(LED_VERDE, LOW);
   }
-  Serial.println(ssid);
-  Serial.println();
-  Serial.println("connected: ");
   Serial.println(WiFi.localIP());
 
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
   Firebase.reconnectWiFi(true);
-  
-  configTime(timezone, dst, "pool.ntp.org","time.nist.gov");
-  Serial.println("\nWaiting for Internet time");
 
   while(!time(nullptr)){
-     Serial.println("*");
      delay(1000);
-  }
-  Serial.println("\nTime response....OK");   
+  }  
 
   digitalWrite(LED_ROJO, LOW);
   digitalWrite(LED_VERDE, HIGH);
 }
 
-void loop(){ 
-
-  while(Serial.available() && i<=0){
-    String respuesta = Serial.readStringUntil('\n'); 
-    if(respuesta != ""){
-      FirebaseJson json;
-      json.set("respuesta", respuesta);
-      Firebase.pushJSON(firebaseData, "/respuestas/append", json);
+void loop(){
+  /*
+  if(Serial.available()>0)    //Checks is there any data in buffer 
+  {
+    //Serial.print(char(Serial.read()));  //Read serial data byte and send back to serial monitor
+      if(char(Serial.read())=="o"){
+      addDataOK(tiempo);
     }
   }
+  */
+
+  String readString="";
+  delay(10);
+  while (Serial.available()) {
+    delay(10); 
+    if (Serial.available() >0) {
+      char c = Serial.read();
+      readString += c;
+    }
+  }
+  if (readString.length() >2) {
+    addDataOK(tiempo);
+  }
+
+
+
+
   
   if(WiFi.status() != WL_CONNECTED) {
       digitalWrite(LED_ROJO, HIGH);
@@ -87,83 +93,19 @@ void loop(){
       digitalWrite(LED_VERDE, HIGH);
       delay(200);
 
-
-      //Serial.println(F("===================== GET ROOM FIREBASE================================="));
-      
-      String mostrar= "/actions/";
-      mostrar += cnc_id;
+      String mostrar= "/commands/";
+      mostrar += cnc_id+"/1";
       mostrar += "/command";
       String comandoNuevo = firebaseGetCommand(mostrar);
       if(comandoNuevo != "" && comandoNuevo !=comando){
+        String tiempoData = getValue(comandoNuevo,'|',0);
+        String comandoData = getValue(comandoNuevo,'|',1);
         comando = comandoNuevo;
-        Serial.println(comando);
-
-        //esperamos respuesta
-        //enviamos el ok a la app
-        //while(Serial.available())
-        
-        /*while(!Serial.available()){}
-        
-        String respuesta = Serial.readString(); 
-        FirebaseJson json;
-        json.set("respuesta", respuesta);
-        Firebase.pushJSON(firebaseData, "/respuestas/append", json);
-        */
-
-      
-        /*
-        while(Serial.available() && i<=0){
-          String respuesta = Serial.readStringUntil('\n'); 
-          FirebaseJson json;
-          json.set("respuesta", respuesta);
-          Firebase.pushJSON(firebaseData, "/respuestas/append", json);
-
-          //i++;
-        }*/
+        tiempo = tiempoData;
+        Serial.println(comandoData); 
       }
-
-      //Serial.println(F("=================TIME=====================================")); 
-  
-      time_t now = time(nullptr);
-      struct tm* p_tm = localtime(&now);
-      int dia=p_tm->tm_mday;
-      int mes=p_tm->tm_mon + 1;
-      int anio=p_tm->tm_year + 1900;
-      int hora=p_tm->tm_hour;
-      int minuto=p_tm->tm_min;
-      int segundo=p_tm->tm_sec;
-      dateTime= "";
-      dateTime += dia;
-      dateTime += "/";
-      dateTime += mes;
-      dateTime += "/";
-      dateTime += anio;
-      dateTime += " ";
-      dateTime += hora;
-      dateTime += ":";
-      dateTime += minuto;
-      dateTime += ":";
-      dateTime += segundo;
-      //Serial.println(dateTime);
-      
-      /*Serial.println(F("=====================FIREBASE=================================")); 
-      Firebase.setString("/access-elevator/"+id+"/id", id);
-      Firebase.setString("/access-elevator/"+id+"/name", nameDevice);
-      Firebase.setString("/access-elevator/"+id+"/datetime", dateTime);
-      Firebase.setString("/access-elevator/"+id+"/room_id", room_id);
-      Firebase.setString("/access-elevator/"+id+"/rfid", uid);
-      */
-
-
-      //Serial.println(F("=======================SHOW DATA==============================="));
-      //Serial.println("id: "+id+" name: "+nameDevice+" datetime: "+dateTime+" room_id: "+room_id+" rfid: "+uid);
-      //Serial.println(F("=======================FIN===============================")); 
-  
-    
   }
 }
-
-
 
 String firebaseGetCommand(String s){
   String x ="";
@@ -176,10 +118,24 @@ String firebaseGetCommand(String s){
   delay(100);
     
 }
-
 void addDataOK(String respuesta){
   FirebaseJson json;
   json.set("respuesta", respuesta);
-  Firebase.pushJSON(firebaseData, "/respuestas/append", json);
+  Firebase.pushJSON(firebaseData, "/respuestas/append/"+cnc_id, json);
+  Firebase.setString(firebaseData, "/devices/"+cnc_id+"/lastTime", respuesta);
+}
+String getValue(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length()-1;
 
+  for(int i=0; i<=maxIndex && found<=index; i++){
+    if(data.charAt(i)==separator || i==maxIndex){
+        found++;
+        strIndex[0] = strIndex[1]+1;
+        strIndex[1] = (i == maxIndex) ? i+1 : i;
+    }
+  }
+  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
